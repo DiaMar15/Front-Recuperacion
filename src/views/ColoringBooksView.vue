@@ -1,222 +1,259 @@
 <template>
-  <v-container class="py-8" fluid>
-    <v-card class="pa-6">
-      <v-toolbar flat class="mb-4">
-        <v-toolbar-title>Libros para Colorear</v-toolbar-title>
+  <v-container>
+    <!-- FILTRO DE BÚSQUEDA -->
+    <v-text-field
+      v-model="search"
+      label="Buscar por título"
+      append-inner-icon="mdi-magnify"
+      class="mb-4"
+      clearable
+    />
+
+    <!-- LIBROS ACTIVOS -->
+    <v-card class="mb-4">
+      <v-card-title>
+        <span class="text-h6">Libros Activos</span>
         <v-spacer />
-        <v-btn color="primary" @click="abrirFormulario = true">
-          <v-icon left>mdi-plus</v-icon>
-          Nuevo libro
-        </v-btn>
-      </v-toolbar>
-
-      <v-row class="mb-4" dense>
-        <v-col cols="12" md="3">
-          <v-select
-            v-model="filters.categoria"
-            :items="categoriasDisponibles"
-            label="Categoría"
-            clearable
-            dense
-          />
-        </v-col>
-
-        <v-col cols="12" md="3">
-          <v-select
-            v-model="filters.autor"
-            :items="autoresDisponibles"
-            label="Autor"
-            clearable
-            dense
-          />
-        </v-col>
-
-        <v-col cols="12" md="3">
-          <v-select
-            v-model="filters.activo"
-            :items="[
-              { text: 'Activo', value: true },
-              { text: 'Inactivo', value: false },
-            ]"
-            item-title="text"
-            item-value="value"
-            label="Estado"
-            clearable
-            dense
-          />
-        </v-col>
-
-        <v-col cols="12" md="3">
-          <v-text-field
-            v-model.number="filters.min_popularidad"
-            label="Popularidad mínima"
-            type="number"
-            dense
-            clearable
-            min="0"
-          />
-        </v-col>
-
-        <v-col cols="12" class="text-right">
-          <v-btn color="primary" @click="loadBooks">Filtrar</v-btn>
-          <v-btn color="secondary" @click="limpiarFiltros" class="ml-2">Limpiar</v-btn>
-        </v-col>
-      </v-row>
-
+        <v-btn color="primary" @click="openDialog()">Agregar Libro</v-btn>
+      </v-card-title>
       <v-data-table
         :headers="headers"
-        :items="booksOrdenados"
-        item-value="id"
+        :items="filteredActivos"
+        item-value="titulo"
         class="elevation-1"
+        no-data-text="No hay libros activos"
       >
-        <template #item.titulo="{ item }">
-          <span
-            class="text-primary font-weight-bold cursor-pointer"
-            @click="abrirModal(item)"
-          >
-            {{ item.titulo }}
-          </span>
-          <v-icon v-if="item.destacado" color="yellow darken-3" class="ml-1">mdi-star</v-icon>
+        <template #item.destacado="{ item }">
+          <v-icon color="amber" v-if="item.destacado === 1">mdi-star</v-icon>
+          <v-icon v-else color="grey">mdi-star-outline</v-icon>
         </template>
-
-        <template #item.activo="{ item }">
-          <v-icon :color="item.activo ? 'green' : 'red'">
-            {{ item.activo ? 'mdi-check-circle' : 'mdi-close-circle' }}
-          </v-icon>
-        </template>
-
-        <template #item.actions="{ item }">
-          <v-btn icon @click="editarLibro(item)">
-            <v-icon>mdi-pencil</v-icon>
-          </v-btn>
-          <v-btn icon @click="eliminarLibro(item.id)">
-            <v-icon color="red">mdi-delete</v-icon>
-          </v-btn>
+        <template #item.acciones="{ item }">
+          <v-btn icon="mdi-pencil" @click="openDialog(item)" color="primary" />
+          <v-btn icon="mdi-delete" @click="softDelete(item)" color="error" />
         </template>
       </v-data-table>
     </v-card>
 
-    <!-- Modal de descripción -->
-    <v-dialog v-model="modalVisible" max-width="600px">
+    <!-- LIBROS INACTIVOS -->
+    <v-card class="mb-4">
+      <v-card-title>
+        <span class="text-h6">Libros Inactivos</span>
+      </v-card-title>
+      <v-data-table
+        :headers="headers"
+        :items="filteredInactivos"
+        item-value="titulo"
+        class="elevation-1"
+        no-data-text="No hay libros inactivos"
+      >
+        <template #item.destacado="{ item }">
+          <v-icon color="amber" v-if="item.destacado === 1">mdi-star</v-icon>
+          <v-icon v-else color="grey">mdi-star-outline</v-icon>
+        </template>
+        <template #item.acciones="{ item }">
+          <v-btn icon="mdi-backup-restore" @click="restore(item)" color="success" />
+          <v-btn icon="mdi-delete-forever" @click="permanentDelete(item)" color="error" />
+        </template>
+      </v-data-table>
+    </v-card>
+
+    <!-- FORMULARIO -->
+    <v-dialog v-model="dialog" max-width="700px">
       <v-card>
-        <v-card-title class="text-h6 font-weight-bold">
-          {{ libroSeleccionado?.titulo }}
-        </v-card-title>
+        <v-card-title>{{ form.id ? 'Editar Libro' : 'Agregar Libro' }}</v-card-title>
         <v-card-text>
-          {{ libroSeleccionado?.descripcion }}
+          <v-text-field v-model="form.titulo" label="Título" :rules="[v => !!v || 'Título requerido']" />
+          <v-text-field v-model="form.autor" label="Autor" :rules="[v => !!v || 'Autor requerido']" />
+          <v-text-field v-model="form.categoria" label="Categoría" :rules="[v => !!v || 'Categoría requerida']" />
+          <v-textarea v-model="form.descripcion" label="Descripción" :rules="[v => v.length >= 10 || 'Mínimo 10 caracteres']" />
+          <v-text-field v-model="form.precio" label="Precio" type="number" :rules="[v => v > 0 || 'Debe ser mayor que 0']" />
+          <v-text-field v-model="form.cantidadPaginas" label="Cantidad de Páginas" type="number" :rules="[v => v > 0 || 'Debe ser mayor que 0']" />
+          <v-text-field v-model="form.popularidad" label="Popularidad" type="number" :rules="[v => v >= 0 || 'Debe ser 0 o más']" />
+          <v-select
+            v-model="form.pageRangeId"
+            :items="pageRanges"
+            item-title="nombre"
+            item-value="id"
+            label="Rango de Páginas"
+            :return-object="false"
+          />
+          <v-switch v-model="form.destacado" label="¿Destacado?" :true-value="1" :false-value="0" />
+          <v-switch v-model="form.activo" label="¿Activo?" :true-value="1" :false-value="0" />
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn text @click="modalVisible = false">Cerrar</v-btn>
+          <v-btn color="primary" @click="save">Guardar</v-btn>
+          <v-btn @click="closeDialog">Cancelar</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
 
-    <!-- Modal de formulario -->
-    <v-dialog v-model="abrirFormulario" max-width="800px" persistent>
-      <ColoringBookForm @creado="onLibroCreado" />
-    </v-dialog>
+    <!-- SNACKBAR -->
+    <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3000">
+      {{ snackbar.text }}
+    </v-snackbar>
   </v-container>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import coloringBookService from '@/services/coloringBookService'
-import ColoringBookForm from '@/components/ColoringBookForm.vue'
+import { ref, computed, onMounted } from 'vue'
+import ColoringBookService from '@/services/ColoringBookService'
+import PageRangeService from '@/services/PageRangeService'
 
-const books = ref<any[]>([])
-const filters = ref({
-  categoria: null,
-  autor: null,
-  activo: null,
-  min_popularidad: null,
+const search = ref('')
+const activos = ref([])
+const inactivos = ref([])
+const pageRanges = ref([])
+const dialog = ref(false)
+const snackbar = ref({ show: false, text: '', color: 'success' })
+
+const form = ref({
+  id: null,
+  titulo: '',
+  autor: '',
+  categoria: '',
+  descripcion: '',
+  precio: '',
+  cantidadPaginas: '',
+  popularidad: '',
+  pageRangeId: null,
+  destacado: 0,
+  activo: 1,
 })
-
-const libroSeleccionado = ref<any>(null)
-const modalVisible = ref(false)
-const abrirFormulario = ref(false)
 
 const headers = [
-  { title: 'Título', key: 'titulo' },
-  { title: 'Autor', key: 'autor' },
-  { title: 'Categoría', key: 'categoria' },
-  { title: 'Precio', key: 'precio' },
-  { title: 'Popularidad', key: 'popularidad' },
-  { title: 'Activo', key: 'activo' },
-  { title: 'Acciones', key: 'actions', sortable: false },
+  { text: 'Título', value: 'titulo' },
+  { text: 'Autor', value: 'autor' },
+  { text: 'Categoría', value: 'categoria' },
+  { text: 'Descripción', value: 'descripcion' },
+  { text: 'Precio', value: 'precio' },
+  { text: 'Páginas', value: 'cantidadPaginas' },
+  { text: 'Popularidad', value: 'popularidad' },
+  { text: 'Destacado', value: 'destacado' },
+  { text: 'Activo', value: 'activo' },
+  { text: 'Acciones', value: 'acciones', sortable: false },
 ]
 
-const loadBooks = async () => {
-  try {
-    const filtros = { ...filters.value }
-    if (filtros.min_popularidad !== null) {
-      filtros.min_popularidad = filtros.min_popularidad.toString()
-    }
-    const result = await coloringBookService.list(filtros)
-    books.value = result
-  } catch (error: any) {
-    alert(error.message || 'Error al cargar libros')
-  }
-}
-
-const limpiarFiltros = () => {
-  filters.value = {
-    categoria: null,
-    autor: null,
-    activo: null,
-    min_popularidad: null,
-  }
-  loadBooks()
-}
-
-const abrirModal = (libro: any) => {
-  libroSeleccionado.value = libro
-  modalVisible.value = true
-}
-
-const editarLibro = (libro: any) => {
-  alert(`Editar libro ID: ${libro.id} - Función no implementada`)
-}
-
-const eliminarLibro = async (id: number) => {
-  if (confirm('¿Estás seguro de eliminar este libro?')) {
-    try {
-      await coloringBookService.delete(id)
-      await loadBooks()
-    } catch (error: any) {
-      alert(error.message || 'Error al eliminar libro')
-    }
-  }
-}
-
-const onLibroCreado = () => {
-  abrirFormulario.value = false
-  loadBooks()
-}
-
-const categoriasDisponibles = computed(() => {
-  const cats = books.value.map((b) => b.categoria)
-  return [...new Set(cats)].filter(Boolean).sort()
-})
-
-const autoresDisponibles = computed(() => {
-  const auts = books.value.map((b) => b.autor)
-  return [...new Set(auts)].filter(Boolean).sort()
-})
-
-const booksOrdenados = computed(() =>
-  [...books.value].sort((a, b) => {
-    if (b.destacado && !a.destacado) return 1
-    if (a.destacado && !b.destacado) return -1
-    return 0
-  })
+const filteredActivos = computed(() =>
+  activos.value.filter((b) =>
+    b.titulo.toLowerCase().includes(search.value.toLowerCase())
+  )
 )
 
-onMounted(loadBooks)
-</script>
+const filteredInactivos = computed(() =>
+  inactivos.value.filter((b) =>
+    b.titulo.toLowerCase().includes(search.value.toLowerCase())
+  )
+)
 
-<style scoped>
-.cursor-pointer {
-  cursor: pointer;
+function showSnackbar(msg, color = 'success') {
+  snackbar.value = { show: true, text: msg, color }
 }
-</style>
+
+async function loadBooks() {
+  try {
+    const data = await ColoringBookService.list()
+    activos.value = data.filter((b) => b.activo === 1)
+    inactivos.value = data.filter((b) => b.activo === 0)
+  } catch {
+    showSnackbar('Error al cargar libros', 'error')
+  }
+}
+
+async function loadPageRanges() {
+  try {
+    pageRanges.value = await PageRangeService.list()
+  } catch {
+    showSnackbar('Error al cargar rangos de páginas', 'error')
+  }
+}
+
+function openDialog(book = null) {
+  if (book) {
+    form.value = { ...book }
+  } else {
+    form.value = {
+      id: null,
+      titulo: '',
+      autor: '',
+      categoria: '',
+      descripcion: '',
+      precio: '',
+      cantidadPaginas: '',
+      popularidad: '',
+      pageRangeId: null,
+      destacado: 0,
+      activo: 1,
+    }
+  }
+  dialog.value = true
+}
+
+function closeDialog() {
+  dialog.value = false
+}
+
+async function save() {
+  try {
+    const payload = {
+      ...form.value,
+      cantidadPaginas: parseInt(form.value.cantidadPaginas),
+      precio: parseFloat(form.value.precio),
+      popularidad: parseInt(form.value.popularidad),
+      activo: parseInt(form.value.activo),
+      destacado: typeof form.value.destacado === 'string'
+        ? parseInt(form.value.destacado)
+        : form.value.destacado,
+      pageRangeId: form.value.pageRangeId ?? null,
+    }
+
+    if (form.value.id) {
+      await ColoringBookService.updatePatch(form.value.id, payload)
+      showSnackbar('Libro actualizado')
+    } else {
+      await ColoringBookService.create(payload)
+      showSnackbar('Libro creado')
+    }
+
+    closeDialog()
+    await loadBooks()
+  } catch (err) {
+    showSnackbar(err.message || 'Error al guardar', 'error')
+  }
+}
+
+async function softDelete(book) {
+  try {
+    await ColoringBookService.updatePatch(book.id, { activo: 0 })
+    showSnackbar('Libro desactivado')
+    await loadBooks()
+  } catch {
+    showSnackbar('Error al desactivar libro', 'error')
+  }
+}
+
+async function restore(book) {
+  try {
+    await ColoringBookService.updatePatch(book.id, { activo: 1 })
+    showSnackbar('Libro restaurado')
+    await loadBooks()
+  } catch {
+    showSnackbar('Error al restaurar libro', 'error')
+  }
+}
+
+async function permanentDelete(book) {
+  try {
+    await ColoringBookService.delete(book.id)
+    showSnackbar('Libro eliminado definitivamente')
+    await loadBooks()
+  } catch {
+    showSnackbar('Error al eliminar definitivamente', 'error')
+  }
+}
+
+onMounted(() => {
+  loadBooks()
+  loadPageRanges()
+})
+</script>
